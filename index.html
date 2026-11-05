@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="本地粘贴 HTTP 响应头，立刻检查安全相关头是否齐全。纯前端，不上传。" />
+  <title>sec-headers · HTTP 安全响应头检查</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9bb4;
+      --ok: #3dd68c;
+      --ok-bg: rgba(61, 214, 140, 0.12);
+      --miss: #ff6b6b;
+      --miss-bg: rgba(255, 107, 107, 0.12);
+      --warn: #f0c14a;
+      --warn-bg: rgba(240, 193, 74, 0.12);
+      --accent: #5b9dff;
+      --radius: 10px;
+      --font: "SF Pro Text", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+    }
+    header { margin-bottom: 1.25rem; }
+    header h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .badge {
+      display: inline-block;
+      margin-top: 0.55rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      background: var(--ok-bg);
+      color: var(--ok);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: var(--muted);
+    }
+    textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      resize: vertical;
+    }
+    textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0.75rem 0 1.25rem;
+    }
+    button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 600;
+      padding: 0.55rem 0.95rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #061018;
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+    .pill {
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .pill.ok { color: var(--ok); border-color: rgba(61,214,140,0.35); }
+    .pill.miss { color: var(--miss); border-color: rgba(255,107,107,0.35); }
+    .pill.warn { color: var(--warn); border-color: rgba(240,193,74,0.35); }
+    section h2 {
+      margin: 1.4rem 0 0.65rem;
+      font-size: 1.05rem;
+    }
+    .list { display: grid; gap: 0.65rem; }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 0.85rem 1rem;
+    }
+    .card.present { border-left: 3px solid var(--ok); }
+    .card.absent { border-left: 3px solid var(--miss); background: var(--miss-bg); }
+    .card.leak { border-left: 3px solid var(--warn); background: var(--warn-bg); }
+    .card-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.45rem 0.75rem;
+      margin-bottom: 0.35rem;
+    }
+    .name {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+    .status {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.12rem 0.45rem;
+      border-radius: 4px;
+    }
+    .status.ok { background: var(--ok-bg); color: var(--ok); }
+    .status.miss { background: var(--miss-bg); color: var(--miss); }
+    .status.warn { background: var(--warn-bg); color: var(--warn); }
+    .value {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+      word-break: break-all;
+      margin: 0.25rem 0;
+    }
+    .desc, .risk {
+      margin: 0.2rem 0 0;
+      font-size: 0.86rem;
+      color: var(--text);
+    }
+    .risk { color: var(--miss); }
+    .card.leak .risk { color: var(--warn); }
+    .toast {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      background: #243044;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.55rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: transform 0.25s ease;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+    footer a { color: var(--accent); }
+    @media (max-width: 560px) {
+      header h1 { font-size: 1.25rem; }
+      textarea { min-height: 160px; font-size: 0.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>sec-headers</h1>
+      <p>粘贴 HTTP 响应头，本地检查安全相关头是否齐全。不上传、无网络请求。</p>
+      <span class="badge">纯前端 · 数据不出浏览器</span>
+    </header>
+
+    <label for="raw">HTTP 响应头</label>
+    <textarea id="raw" spellcheck="false" aria-label="粘贴 HTTP 响应头"></textarea>
+    <div class="actions">
+      <button type="button" class="primary" id="btn-check">检查</button>
+      <button type="button" id="btn-sample">填入示例</button>
+      <button type="button" id="btn-clear">清空</button>
+      <button type="button" id="btn-copy">复制缺失清单</button>
+    </div>
+
+    <div class="summary" id="summary" hidden></div>
+
+    <section>
+      <h2>安全头清单</h2>
+      <div class="list" id="sec-list"></div>
+    </section>
+
+    <section>
+      <h2>信息暴露提示</h2>
+      <p style="margin:0 0 0.65rem;color:var(--muted);font-size:0.86rem;">
+        下列头可能暴露技术栈或版本，不等于漏洞；仅作收敛提示。
+      </p>
+      <div class="list" id="leak-list"></div>
+    </section>
+
+    <footer>
+      开源 MIT ·
+      <a href="https://github.com/temptation2017/sec-headers">GitHub</a>
+      · 不是漏洞扫描器，结果仅供参考
+    </footer>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+(function () {
+  const SAMPLE = [
+    "HTTP/1.1 200 OK",
+    "Date: Wed, 05 Nov 2025 12:00:00 GMT",
+    "Content-Type: text/html; charset=utf-8",
+    "Server: nginx/1.24.0",
+    "X-Powered-By: Express",
+    "X-AspNet-Version: 4.0.30319",
+    "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options: nosniff",
+    "Referrer-Policy: strict-origin-when-cross-origin",
+    "Content-Security-Policy: default-src 'self'",
+    "Set-Cookie: session=demo; Path=/; HttpOnly",
+    "Cache-Control: no-store"
+  ].join("\n");
+
+  const SECURITY = [
+    {
+      keys: ["strict-transport-security"],
+      name: "Strict-Transport-Security",
+      desc: "强制浏览器仅通过 HTTPS 访问，降低降级与中间人风险。",
+      risk: "缺少 HSTS 时，用户可能被诱导以明文 HTTP 访问并被劫持 Cookie/会话。"
+    },
+    {
+      keys: ["content-security-policy"],
+      name: "Content-Security-Policy",
+      desc: "限制页面可加载的脚本、样式、图片等资源来源，缓解 XSS。",
+      risk: "缺少 CSP 时，注入脚本更容易执行，XSS 危害面更大。"
+    },
+    {
+      keys: ["x-content-type-options"],
+      name: "X-Content-Type-Options",
+      desc: "禁止浏览器猜测 MIME 类型（通常设 nosniff），降低类型混淆攻击。",
+      risk: "缺少时，恶意内容可能被浏览器错误解释为可执行脚本。"
+    },
+    {
+      keys: ["x-frame-options"],
+      name: "X-Frame-Options",
+      alt: "也可由 CSP 的 frame-ancestors 替代",
+      desc: "控制页面能否被嵌入 iframe，缓解点击劫持。",
+      risk: "缺少时页面可能被恶意站点嵌套诱导误点。",
+      relatedCsp: true
+    },
+    {
+      keys: ["referrer-policy"],
+      name: "Referrer-Policy",
+      desc: "控制跳转/请求时带出的 Referer 信息量，减少 URL 敏感信息泄露。",
+      risk: "缺少时默认策略可能把完整 URL（含查询参数）泄露给第三方。"
+    },
+    {
+      keys: ["permissions-policy", "feature-policy"],
+      name: "Permissions-Policy",
+      desc: "限制摄像头、麦克风、地理位置等浏览器能力的使用范围。",
+      risk: "缺少时，嵌入内容或脚本更容易申请敏感设备权限。"
+    },
+    {
+      keys: ["cross-origin-opener-policy"],
+      name: "Cross-Origin-Opener-Policy",
+      desc: "隔离浏览上下文，降低跨源窗口互相窥探（配合 COEP 可启用跨源隔离）。",
+      risk: "缺少时，跨源弹窗/标签页可能共享浏览上下文，利于 Spectre 类侧信道。"
+    },
+    {
+      keys: ["cross-origin-resource-policy"],
+      name: "Cross-Origin-Resource-Policy",
+      desc: "限制其他站点能否加载本资源，缓解部分跨源数据窃取。",
+      risk: "缺少时，资源可能被任意跨源嵌入，增加 Spectre/侧信道利用面。"
+    },
+    {
+      keys: ["cross-origin-embedder-policy"],
+      name: "Cross-Origin-Embedder-Policy",
+      desc: "要求嵌入资源声明 CORP/CORS，是跨源隔离（SharedArrayBuffer 等）的前提之一。",
+      risk: "缺少时无法启用完整跨源隔离；对需要高隔离的应用是缺口。"
+    }
+  ];
+
+  const LEAKS = [
+    {
+      keys: ["server"],
+      name: "Server",
+      desc: "常暴露 Web 服务器软件与版本。",
+      risk: "攻击者可据此缩小漏洞利用范围；建议隐藏或泛化版本信息。"
+    },
+    {
+      keys: ["x-powered-by"],
+      name: "X-Powered-By",
+      desc: "常暴露应用框架或运行时（如 Express、PHP、ASP.NET）。",
+      risk: "便于指纹识别；多数框架可关闭该头。"
+    },
+    {
+      keys: ["x-aspnet-version", "x-aspnetmvc-version"],
+      name: "X-AspNet-Version / X-AspNetMvc-Version",
+      desc: "暴露 ASP.NET / MVC 版本号。",
+      risk: "明确指向已知版本，便于针对性探测。"
+    },
+    {
+      keys: ["x-generator"],
+      name: "X-Generator",
+      desc: "常暴露 CMS 或站点生成器名称与版本。",
+      risk: "便于识别 WordPress/Drupal 等并检索对应漏洞。"
+    },
+    {
+      keys: ["x-drupal-cache", "x-drupal-dynamic-cache"],
+      name: "X-Drupal-*",
+      desc: "暗示站点使用 Drupal。",
+      risk: "技术栈指纹，便于定向扫描。"
+    },
+    {
+      keys: ["x-shopify-stage", "x-shopid"],
+      name: "X-Shopify-*",
+      desc: "暗示站点托管于 Shopify。",
+      risk: "平台指纹；通常风险较低，但仍属信息暴露。"
+    }
+  ];
+
+  const elRaw = document.getElementById("raw");
+  const elSec = document.getElementById("sec-list");
+  const elLeak = document.getElementById("leak-list");
+  const elSummary = document.getElementById("summary");
+  const elToast = document.getElementById("toast");
+
+  function toast(msg) {
+    elToast.textContent = msg;
+    elToast.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () {
+      elToast.classList.remove("show");
+    }, 1800);
+  }
+
+  function parseHeaders(text) {
+    const map = Object.create(null);
+    const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i].trim();
+      if (!line) continue;
+      if (/^HTTP\/\d/i.test(line)) continue;
+      while (i + 1 < lines.length && /^[ \t]/.test(lines[i + 1])) {
+        line += " " + lines[++i].trim();
+      }
+      const idx = line.indexOf(":");
+      if (idx <= 0) continue;
+      const name = line.slice(0, idx).trim().toLowerCase();
+      const value = line.slice(idx + 1).trim();
+      if (!name) continue;
+      if (map[name]) map[name] += ", " + value;
+      else map[name] = value;
+    }
+    return map;
+  }
+
+  function findValue(map, keys) {
+    for (let i = 0; i < keys.length; i++) {
+      if (map[keys[i]]) return { key: keys[i], value: map[keys[i]] };
+    }
+    return null;
+  }
+
+  function hasFrameAncestors(map) {
+    const csp = map["content-security-policy"] || map["content-security-policy-report-only"] || "";
+    return /(?:^|;)\s*frame-ancestors\b/i.test(csp);
+  }
+
+  function truncate(s, n) {
+    s = String(s || "");
+    if (s.length <= n) return s;
+    return s.slice(0, n - 1) + "…";
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function cardHtml(item, present, value, extraNote, kind) {
+    const statusClass = kind === "leak" ? "warn" : present ? "ok" : "miss";
+    const statusText = kind === "leak" ? "信息暴露" : present ? "已设置" : "缺失";
+    const cardClass = kind === "leak" ? "leak" : present ? "present" : "absent";
+    let html = '<article class="card ' + cardClass + '">';
+    html += '<div class="card-top"><span class="name">' + escapeHtml(item.name) + "</span>";
+    html += '<span class="status ' + statusClass + '">' + statusText + "</span></div>";
+    if (present && value) {
+      html += '<p class="value">' + escapeHtml(truncate(value, 180)) + "</p>";
+    }
+    html += '<p class="desc">' + escapeHtml(item.desc);
+    if (extraNote) html += "（" + escapeHtml(extraNote) + "）";
+    html += "</p>";
+    if (!present || kind === "leak") {
+      html += '<p class="risk">' + escapeHtml(item.risk) + "</p>";
+    }
+    html += "</article>";
+    return html;
+  }
+
+  let lastMissing = [];
+
+  function analyze() {
+    const map = parseHeaders(elRaw.value);
+    let presentCount = 0;
+    let missCount = 0;
+    lastMissing = [];
+    let secHtml = "";
+
+    SECURITY.forEach(function (item) {
+      let hit = findValue(map, item.keys);
+      let present = !!hit;
+      let extra = "";
+      let value = hit ? hit.value : "";
+
+      if (item.relatedCsp && !present && hasFrameAncestors(map)) {
+        present = true;
+        value = "(由 CSP frame-ancestors 覆盖)";
+        extra = item.alt || "CSP frame-ancestors 已提供等效保护";
+      }
+
+      if (present) presentCount++;
+      else {
+        missCount++;
+        lastMissing.push(item.name);
+      }
+      secHtml += cardHtml(item, present, value, extra, "sec");
+    });
+
+    elSec.innerHTML = secHtml;
+
+    let leakHtml = "";
+    let leakCount = 0;
+    LEAKS.forEach(function (item) {
+      const hit = findValue(map, item.keys);
+      if (hit) {
+        leakCount++;
+        leakHtml += cardHtml(item, true, hit.value, null, "leak");
+      }
+    });
+    if (!leakHtml) {
+      leakHtml = '<p style="color:var(--muted);font-size:0.9rem;">未发现常见信息暴露头（在已检查列表内）。</p>';
+    }
+    elLeak.innerHTML = leakHtml;
+
+    elSummary.hidden = false;
+    elSummary.innerHTML =
+      '<span class="pill ok">已设置 ' + presentCount + "</span>" +
+      '<span class="pill miss">缺失 ' + missCount + "</span>" +
+      '<span class="pill warn">信息暴露 ' + leakCount + "</span>";
+  }
+
+  function copyMissing() {
+    if (!lastMissing.length && elSummary.hidden) {
+      analyze();
+    }
+    let md;
+    if (!lastMissing.length) {
+      md = "## 安全响应头检查\n\n- [x] 清单内安全头均已覆盖（或由等效机制满足）\n";
+    } else {
+      md = "## 缺失的安全响应头\n\n";
+      lastMissing.forEach(function (n) {
+        md += "- [ ] 补充 `" + n + "`\n";
+      });
+      md += "\n> 由 sec-headers 本地生成，仅供参考。\n";
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md).then(function () {
+        toast("已复制缺失清单");
+      }).catch(function () {
+        fallbackCopy(md);
+      });
+    } else {
+      fallbackCopy(md);
+    }
+  }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      toast("已复制缺失清单");
+    } catch (e) {
+      toast("复制失败，请手动选择");
+    }
+    document.body.removeChild(ta);
+  }
+
+  document.getElementById("btn-check").addEventListener("click", analyze);
+  document.getElementById("btn-sample").addEventListener("click", function () {
+    elRaw.value = SAMPLE;
+    analyze();
+    toast("已填入示例");
+  });
+  document.getElementById("btn-clear").addEventListener("click", function () {
+    elRaw.value = "";
+    elSec.innerHTML = "";
+    elLeak.innerHTML = "";
+    elSummary.hidden = true;
+    lastMissing = [];
+  });
+  document.getElementById("btn-copy").addEventListener("click", copyMissing);
+  elRaw.addEventListener("input", function () {
+    clearTimeout(elRaw._t);
+    elRaw._t = setTimeout(analyze, 280);
+  });
+
+  elRaw.value = SAMPLE;
+  analyze();
+})();
+  </script>
+</body>
+</html>
